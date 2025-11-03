@@ -1,0 +1,129 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Lead {
+  id           String    @id @default(cuid())
+  createdAt    DateTime  @default(now())
+  source       String    @default("website") // website, api, etc.
+  payloadJson  Json      // raw submission data
+  firstName    String
+  lastName     String
+  companyName  String
+  workEmail    String
+  howFound     String    // dropdown value from form
+  companyDomain String?   // derived from workEmail
+  status       String    @default("new") // new, enriched, scored, contacted, etc.
+  
+  company      Company?  @relation(fields: [companyDomain], references: [domain])
+  outreachAttempts OutreachAttempt[]
+  
+  @@map("leads")
+}
+
+model Company {
+  id             String    @id @default(cuid())
+  domain         String    @unique
+  name           String
+  linkedinUrl    String?
+  sizeTotal      Int?      // total employees
+  sizeEng        Int?      // engineering employees
+  industry       String?
+  fundingRound   String?   // Seed, Series A, etc.
+  fundingDate    DateTime?
+  techStackJson  Json?     // array of technologies
+  icpFit         Boolean   @default(false)
+  lastEnrichedAt DateTime?
+  
+  leads          Lead[]
+  contacts       Contact[]
+  scores         Score[]
+  outreachAttempts OutreachAttempt[]
+  enrichmentRuns EnrichmentRun[]
+  
+  @@map("companies")
+}
+
+model Contact {
+  id              String  @id @default(cuid())
+  companyId       String
+  email           String
+  name            String
+  title           String?
+  seniority       String? // junior, mid, senior, lead, manager, director, vp, c-level
+  roleFunction    String? // engineering, product, sales, marketing, etc.
+  linkedinUrl     String?
+  emailConfidence Float?  // 0.0-1.0 confidence score
+  
+  company         Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  outreachAttempts OutreachAttempt[]
+  
+  @@unique([companyId, email])
+  @@map("contacts")
+}
+
+model EnrichmentRun {
+  id          String    @id @default(cuid())
+  subjectType String    // "company" or "contact"
+  subjectId   String    // company.id or contact.id
+  provider    String    @default("clay")
+  requestJson Json      // API request payload
+  responseJson Json?    // API response payload
+  success     Boolean   @default(false)
+  errorText   String?
+  createdAt   DateTime  @default(now())
+  
+  company     Company?  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  
+  @@map("enrichment_runs")
+}
+
+model Score {
+  id          String    @id @default(cuid())
+  companyId   String
+  ruleVersion String    @default("v0")
+  scoreNum    Float     // numerical score
+  reasonsJson Json      // array of scoring reasons
+  decision    String    // AUTO_OUTREACH, REVIEW, DISQUALIFIED
+  createdAt   DateTime  @default(now())
+  
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  @@map("scores")
+}
+
+model OutreachAttempt {
+  id                String    @id @default(cuid())
+  companyId         String
+  leadId            String?
+  contactId         String
+  provider          String    // "smtp" or "mailto"
+  templateKey       String    // A, B, etc.
+  subject           String
+  body              String
+  providerMessageId String?   // SMTP message ID
+  status            String    @default("queued") // queued, sent, delivered, opened, clicked, replied, failed, needs_manual_send
+  eventsJson        Json?     // webhook events from email provider
+  createdAt         DateTime  @default(now())
+  
+  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lead              Lead?     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contact           Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  
+  @@map("outreach_attempts")
+}
+
+model Setting {
+  key       String  @id
+  valueJson Json
+  
+  @@map("settings")
+}
